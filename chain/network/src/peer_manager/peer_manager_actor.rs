@@ -1,5 +1,6 @@
 use crate::accounts_data;
-use crate::network_protocol::Encoding;
+use crate::concurrency::demux;
+use crate::network_protocol::{Encoding, SignedAccountData, SyncAccountsData};
 use crate::peer::codec::Codec;
 use crate::peer::peer_actor::{Event as PeerEvent, PeerActor};
 use crate::peer_manager::peer_store::PeerStore;
@@ -161,9 +162,57 @@ pub(crate) struct PeerManagerState {
     pub connected_peers: RwLock<HashMap<PeerId, ConnectedPeer>>,
     /// Dynamic Prometheus metrics
     pub network_metrics: NetworkMetrics,
+    broadcast_accounts_data_demux: demux::Demux<Vec<SignedAccountData>, ()>,
 }
 
 impl PeerManagerState {
+    pub fn new(
+        client_addr: Recipient<NetworkClientMessages>,
+        view_client_addr: Recipient<NetworkViewClientMessages>,
+        accounts_data_broadcast_max_qps: f64,
+    ) -> Self {
+        Self {
+            client_addr,
+            view_client_addr,
+            network_metrics: Default::default(),
+            connected_peers: RwLock::new(HashMap::default()),
+            accounts_data: Arc::new(accounts_data::Cache::new()),
+            broadcast_accounts_data_demux: demux::Demux::new(demux::RateLimit {
+                qps: accounts_data_broadcast_max_qps,
+                burst: 1,
+            }),
+        }
+    }
+
+    pub async fn broadcast_accounts_data(self: Arc<Self>, data: Vec<SignedAccountData>) {
+        self.broadcast_accounts_data_demux
+            .clone()
+            .call(data, |ds: Vec<Vec<SignedAccountData>>| async move {
+                let res = ds.iter().map(|_| ()).collect();
+                let mut sum = HashMap::<_, SignedAccountData>::new();
+                for d in ds.into_iter().flatten() {
+                    let k = (d.epoch_id.clone(), d.account_id.clone());
+                    if match sum.get(&k) {
+                        None => true,
+                        Some(x) => x.timestamp < d.timestamp,
+                    } {
+                        sum.insert(k, d);
+                    }
+                }
+                self.broadcast_message(SendMessage {
+                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: true,
+                        requesting_full_sync: false,
+                        accounts_data: sum.into_iter().map(|v| v.1).collect(),
+                    }),
+                    context: Span::current().context(),
+                })
+                .await;
+                res
+            })
+            .await;
+    }
+
     /// Broadcast message to all active peers.
     pub async fn broadcast_message(self: Arc<Self>, msg: SendMessage) {
         self.network_metrics.inc_broadcast(msg.message.msg_variant());
@@ -173,12 +222,10 @@ impl PeerManagerState {
         // Change message to reference counted to allow sharing with all actors
         // without cloning.
         let msg = Arc::new(msg);
-        // Send the message to each peer synchronously.
-        // TODO(gprusak): should it be asynchronous instead? The previous semantics was unclear.
-        for addr in peer_addrs {
-            addr.send(msg.clone())
-                .await
-                .expect("Failed sending broadcast message(broadcast_message)");
+        // Send the message to each peer in parallel.
+        let handles = peer_addrs.into_iter().map(|addr| tokio::spawn(addr.send(msg.clone())));
+        for h in handles {
+            h.await.unwrap().expect("Failed sending broadcast message(broadcast_message)");
         }
     }
 
@@ -392,8 +439,8 @@ impl PeerManagerActor {
             }
             v
         };
-
         let config = Arc::new(config);
+        let max_qps = config.accounts_data_broadcast_max_qps;
         Ok(Self {
             clock,
             my_peer_id,
@@ -411,15 +458,13 @@ impl PeerManagerActor {
             peer_counter: Arc::new(AtomicUsize::new(0)),
             whitelist_nodes,
             event_sink: Sink::void(),
-            state: Arc::new(PeerManagerState {
-                config: config.clone(),
-                genesis_id,
-                client_addr,
-                view_client_addr,
-                network_metrics: Default::default(),
-                connected_peers: RwLock::new(HashMap::default()),
-                accounts_data: Arc::new(accounts_data::Cache::new()),
-            }),
+            state: Arc::new(PeerManagerState::new(
+                    config.clone(),
+                    genesis_id,
+                    client_addr,
+                    view_client_addr,
+                    max_qps,
+            )),
         })
     }
 

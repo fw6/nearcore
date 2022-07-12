@@ -1,4 +1,3 @@
-use crate::accounts_data;
 use crate::broadcast;
 use crate::network_protocol::testonly as data;
 use crate::peer::codec::Codec;
@@ -235,15 +234,13 @@ impl PeerHandle {
                     Arc::new(AtomicUsize::new(0)),
                     rate_limiter,
                     cfg.force_encoding,
-                    Arc::new(PeerManagerState {
-                        config: Arc::new(cfg.chain.make_config(my_addr.port())),
-                        genesis_id: cfg.chain.genesis_id.clone(),
-                        client_addr: fc.clone().recipient(),
-                        view_client_addr: fc.clone().recipient(),
-                        accounts_data: Arc::new(accounts_data::Cache::new()),
-                        connected_peers: Default::default(),
-                        network_metrics: Default::default(),
-                    }),
+                    Arc::new(PeerManagerState::new(
+                        Arc::new(cfg.chain.make_config(my_addr.port())),
+                        cfg.chain.genesis_id.clone(),
+                        fc.clone().recipient(),
+                        fc.clone().recipient(),
+                        100., // accounts_data_broadcast_max_qps
+                    )),
                     send.sink().compose(Event::Peer),
                 )
             })
