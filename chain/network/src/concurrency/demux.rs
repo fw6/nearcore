@@ -106,10 +106,26 @@ impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
             let mut calls = vec![];
             let mut closed = false;
             let mut tokens = rl.burst;
+            let mut next_token = None;
             let interval = (time::Duration::SECOND / rl.qps).try_into().unwrap();
             while !calls.is_empty() || !closed {
+                // Restarting the timer every time a new request comes could
+                // cause a starvation, so we compute the next token arrival time
+                // just once for each token.
+                if tokens < rl.burst && next_token.is_none() {
+                    next_token = Some(tokio::time::Instant::now() + interval);
+                }
                 tokio::select! {
-                    _ = tokio::time::sleep(interval), if tokens < rl.burst => tokens += 1,
+                    // TODO(gprusak): implement sleep future support for FakeClock,
+                    // so that we don't use tokio directly here.
+                    _ = async {
+                        // without async {} wrapper, next_token.unwrap() would be evaluated
+                        // unconditionally.
+                        tokio::time::sleep_until(next_token.unwrap()).await
+                    }, if next_token.is_some() => {
+                        tokens += 1;
+                        next_token = None;
+                    }
                     call = recv.recv(), if !closed => match call {
                         Some(call) => calls.push(call),
                         None => closed = true,

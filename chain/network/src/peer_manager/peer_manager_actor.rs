@@ -167,11 +167,15 @@ pub(crate) struct PeerManagerState {
 
 impl PeerManagerState {
     pub fn new(
+        config: Arc<NetworkConfig>,
+        genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         accounts_data_broadcast_max_qps: f64,
     ) -> Self {
         Self {
+            config,
+            genesis_id,
             client_addr,
             view_client_addr,
             network_metrics: Default::default(),
@@ -459,11 +463,11 @@ impl PeerManagerActor {
             whitelist_nodes,
             event_sink: Sink::void(),
             state: Arc::new(PeerManagerState::new(
-                    config.clone(),
-                    genesis_id,
-                    client_addr,
-                    view_client_addr,
-                    max_qps,
+                config.clone(),
+                genesis_id,
+                client_addr,
+                view_client_addr,
+                max_qps,
             )),
         })
     }
