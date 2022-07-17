@@ -321,7 +321,8 @@ pub mod test_features {
     use actix::actors::mocker::Mocker;
     use actix::Actor;
     use near_network_primitives::types::{
-        ChainInfo, EpochInfo, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+        ChainInfo, NetworkConfig, NetworkEpochInfo, NetworkViewClientMessages,
+        NetworkViewClientResponses,
     };
     use near_primitives::block::GenesisId;
     use near_primitives::types::EpochId;
@@ -364,16 +365,13 @@ pub mod test_features {
                 }
                 NetworkViewClientMessages::GetChainInfo => {
                     Box::new(Some(NetworkViewClientResponses::GetChainInfo(ChainInfo {
-                        genesis_id: GenesisId::default(),
                         tracked_shards: vec![],
-                        archival: false,
-
                         height: 1,
-                        this_epoch: Arc::new(EpochInfo {
+                        this_epoch: Arc::new(NetworkEpochInfo {
                             id: EpochId::default(),
                             priority_accounts: HashMap::default(),
                         }),
-                        next_epoch: Arc::new(EpochInfo {
+                        next_epoch: Arc::new(NetworkEpochInfo {
                             id: EpochId::default(),
                             priority_accounts: HashMap::default(),
                         }),
@@ -383,8 +381,14 @@ pub mod test_features {
             }
         }))
         .start();
-        PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-            .unwrap()
+        PeerManagerActor::new(
+            store,
+            config,
+            client_addr.recipient(),
+            view_client_addr.recipient(),
+            GenesisId::default(),
+        )
+        .unwrap()
     }
 }
 

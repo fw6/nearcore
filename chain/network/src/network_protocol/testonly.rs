@@ -3,9 +3,10 @@ use super::*;
 use crate::types::{Handshake, RoutingTableUpdate};
 use near_crypto::{InMemorySigner, KeyType, SecretKey};
 use near_network_primitives::time;
+use near_network_primitives::types::NetworkConfig;
 use near_network_primitives::types::{
-    AccountOrPeerIdOrHash, ChainInfo, Edge, EpochInfo, PartialEdgeInfo, PeerInfo, RawRoutedMessage,
-    RoutedMessageBody,
+    AccountOrPeerIdOrHash, ChainInfo, Edge, NetworkEpochInfo, PartialEdgeInfo, PeerInfo,
+    RawRoutedMessage, RoutedMessageBody,
 };
 use near_primitives::block::{genesis_chunks, Block, BlockHeader, GenesisId};
 use near_primitives::challenge::{BlockDoubleSign, Challenge, ChallengeBody};
@@ -229,8 +230,8 @@ pub fn make_epoch_id<R: Rng>(rng: &mut R) -> EpochId {
     EpochId(CryptoHash::hash_bytes(&rng.gen::<[u8; 19]>()))
 }
 
-pub fn make_epoch_info(id: EpochId, signers: &[InMemorySigner]) -> EpochInfo {
-    EpochInfo {
+pub fn make_epoch_info(id: EpochId, signers: &[InMemorySigner]) -> NetworkEpochInfo {
+    NetworkEpochInfo {
         id,
         priority_accounts: signers
             .iter()
@@ -277,13 +278,10 @@ impl Chain {
         self.blocks.last().unwrap().header()
     }
 
-    pub fn get_info(&self) -> ChainInfo {
+    pub fn get_chain_info(&self) -> ChainInfo {
         ChainInfo {
-            genesis_id: self.genesis_id.clone(),
-            tracked_shards: Default::default(),
-            archival: false,
-
             height: self.height(),
+            tracked_shards: Default::default(),
             this_epoch: Arc::new(make_epoch_info(self.tip().epoch_id().clone(), &self.this_epoch)),
             next_epoch: Arc::new(make_epoch_info(
                 self.tip().next_epoch_id().clone(),
@@ -292,8 +290,23 @@ impl Chain {
         }
     }
 
+    pub fn get_peer_chain_info(&self) -> PeerChainInfoV2 {
+        PeerChainInfoV2 {
+            genesis_id: self.genesis_id.clone(),
+            tracked_shards: Default::default(),
+            archival: false,
+            height: self.height(),
+        }
+    }
+
     pub fn get_block_headers(&self) -> Vec<BlockHeader> {
         self.blocks.iter().map(|b| b.header().clone()).collect()
+    }
+
+    pub fn make_config(&self, port: u16) -> NetworkConfig {
+        // TODO(gprusak): make config generation rng-based,
+        // rather than using a seed.
+        NetworkConfig::from_seed("test1", port)
     }
 }
 
@@ -307,7 +320,7 @@ pub fn make_handshake<R: Rng>(rng: &mut R, chain: &Chain) -> Handshake {
         a_id,
         b_id,
         Some(rng.gen()),
-        chain.get_info().into(),
+        chain.get_peer_chain_info(),
         make_partial_edge(rng),
     )
 }

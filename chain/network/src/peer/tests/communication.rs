@@ -215,7 +215,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
         sender_peer_id: outbound_cfg.id(),
         target_peer_id: inbound.cfg.id(),
         sender_listen_port: Some(outbound.local_addr.port()),
-        sender_chain_info: outbound_cfg.chain.get_info().into(),
+        sender_chain_info: outbound_cfg.chain.get_peer_chain_info(),
         partial_edge_info: outbound_cfg.partial_edge_info(&inbound.cfg.id(), 1),
     };
     // We will also introduce chain_id mismatch, but ProtocolVersionMismatch is expected to take priority.
@@ -249,7 +249,7 @@ async fn test_handshake(outbound_encoding: Option<Encoding>, inbound_encoding: O
     );
 
     // Send a correct Handshake, expect a matching Handshake response.
-    handshake.sender_chain_info = chain.get_info().into();
+    handshake.sender_chain_info = chain.get_peer_chain_info();
     outbound.write(&PeerMessage::Handshake(handshake.clone())).await;
     let resp = outbound.read().await;
     assert_matches!(resp, PeerMessage::Handshake(_));

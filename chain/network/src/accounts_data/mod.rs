@@ -23,7 +23,7 @@ use crate::network_protocol;
 use crate::network_protocol::SignedAccountData;
 use near_crypto::PublicKey;
 use near_network_primitives::time;
-use near_network_primitives::types::EpochInfo;
+use near_network_primitives::types::NetworkEpochInfo;
 use near_primitives::types::{AccountId, EpochId};
 use parking_lot::RwLock;
 use std::collections::{HashMap, HashSet};
@@ -32,6 +32,10 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
+/// Current state of knowledge about an account.
+/// key is the public key of the account in the given epoch.
+/// It will be used to verify new incoming versions of SignedAccountData
+/// for this account.
 struct Account {
     key: PublicKey,
     data: Option<SignedAccountData>,
@@ -66,19 +70,15 @@ pub(crate) enum Error {
     DataTooLarge,
     #[error("found multiple entries for the same (epoch_id,account_id)")]
     SingleAccountMultipleData,
+    #[error("found account data not relevant for the given epoch")]
+    InvalidAccount,
 }
 
-pub struct Epochs(HashMap<EpochId, Epoch>);
+/// Current state of per-epoch knowledge about accounts.
+/// It is a small map: it is expected to just contain current epoch and next epoch.
+struct Epochs(HashMap<EpochId, Epoch>);
 
 impl Epochs {
-    fn with_key(&self, d: SignedAccountData) -> Option<(SignedAccountData, PublicKey)> {
-        let a = self.0.get(&d.epoch_id)?.0.get(&d.account_id)?;
-        if !a.is_new(d.timestamp) {
-            return None;
-        }
-        Some((d, a.key.clone()))
-    }
-
     fn try_insert(&mut self, d: SignedAccountData) -> Option<SignedAccountData> {
         let mut a = self.0.get_mut(&d.epoch_id)?.0.get_mut(&d.account_id)?;
         if !a.is_new(d.timestamp) {
@@ -134,8 +134,8 @@ impl Cache {
     /// TODO(gprusak): note that the current implementation just checks that
     /// epoch_id didn't change, then ignoring content.
     /// It would be more strict (while still being cheap) to
-    /// accept EpochInfo with a cached hash, and compare hashes instead of epoch_id.
-    pub fn set_epochs(&self, new_epochs: Vec<&EpochInfo>) -> bool {
+    /// accept NetworkEpochInfo with a cached hash, and compare hashes instead of epoch_id.
+    pub fn set_epochs(&self, new_epochs: Vec<&NetworkEpochInfo>) -> bool {
         let mut epochs = self.epochs.write();
         epochs.0.retain(|id, _| new_epochs.iter().any(|e| &e.id == id));
         let mut has_new = false;
@@ -155,28 +155,41 @@ impl Cache {
     fn verify(&self, data: Vec<SignedAccountData>) -> (Vec<SignedAccountData>, Option<Error>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
+        // It locks epochs for reading for a short period.
         let mut found = HashSet::new();
-        for d in &data {
+        let mut data_and_keys = vec![];
+        let epochs = self.epochs.read();
+        for d in data {
             // We want the communication needed for broadcasting per-account data to be minimal.
             // Therefore broadcasting multiple datasets per account is considered malicious
             // behavior, since all but one are obviously outdated.
-            if found.contains(&(&d.epoch_id, &d.account_id)) {
+            let data_id = (d.epoch_id.clone(), d.account_id.clone());
+            if found.contains(&data_id) {
                 return (vec![], Some(Error::SingleAccountMultipleData));
             }
-            found.insert((&d.epoch_id, &d.account_id));
+            found.insert(data_id);
             // There is a limit on the amount of RAM occupied by per-account datasets.
             // Broadcasting larger datasets is considered malicious behavior.
             if d.payload().len() > network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES {
                 return (vec![], Some(Error::DataTooLarge));
             }
+            // It is fine to broadcast account data for epochs that we don't care about.
+            let epoch = match epochs.0.get(&d.epoch_id) {
+                Some(e) => e,
+                None => continue,
+            };
+            // It is NOT fine to broadcast account data which is not relevant to the given epoch.
+            let account = match epoch.0.get(&d.account_id) {
+                Some(a) => a,
+                None => return (vec![], Some(Error::InvalidAccount)),
+            };
+            // It is fine to broadcast data we already know about.
+            if !account.is_new(d.timestamp) {
+                continue;
+            }
+            data_and_keys.push((d, account.key.clone()));
         }
-
-        // Fetch keys for verifying the signatures.
-        // It locks epochs for reading for a short period.
-        let data_and_keys: Vec<_> = {
-            let epochs = self.epochs.read();
-            data.into_iter().filter_map(|d| epochs.with_key(d)).collect()
-        };
+        drop(epochs);
 
         // We verify signatures synchronously for now.
         // To verify signatures in parallel, we should have a way to stop verification at the first invalid one.

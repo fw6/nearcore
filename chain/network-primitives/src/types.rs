@@ -13,7 +13,7 @@ use actix::Message;
 use borsh::{BorshDeserialize, BorshSerialize};
 use near_crypto::PublicKey;
 use near_crypto::SecretKey;
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::syncing::{EpochSyncFinalizationResponse, EpochSyncResponse};
@@ -324,7 +324,7 @@ pub enum NetworkViewClientMessages {
 
 // Network-relevant data about the epoch.
 #[derive(Debug, Clone)]
-pub struct EpochInfo {
+pub struct NetworkEpochInfo {
     pub id: EpochId,
     // Public keys of accounts participating in the BFT consensus.
     // It currently includes "block producers", "chunk producers" and "approvers".
@@ -338,13 +338,10 @@ pub struct EpochInfo {
 // TODO(gprusak): it is more like node info, or sth.
 #[derive(Debug, Clone)]
 pub struct ChainInfo {
-    pub genesis_id: GenesisId,
     pub tracked_shards: Vec<ShardId>,
-    pub archival: bool,
-
     pub height: BlockHeight,
-    pub this_epoch: Arc<EpochInfo>,
-    pub next_epoch: Arc<EpochInfo>,
+    pub this_epoch: Arc<NetworkEpochInfo>,
+    pub next_epoch: Arc<NetworkEpochInfo>,
 }
 
 #[derive(Debug, actix::MessageResponse)]

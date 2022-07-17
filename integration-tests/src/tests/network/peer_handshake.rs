@@ -9,6 +9,7 @@ use actix::actors::mocker::Mocker;
 use actix::System;
 use actix::{Actor, Arbiter};
 use futures::{future, FutureExt};
+use near_primitives::block::GenesisId;
 
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
@@ -21,7 +22,8 @@ use near_network::test_utils::{
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
-    ChainInfo, EpochInfo, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+    ChainInfo, NetworkConfig, NetworkEpochInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses,
 };
 #[cfg(test)]
 use near_store::test_utils::create_test_store;
@@ -49,16 +51,14 @@ fn make_peer_manager(
         match msg {
             NetworkViewClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkViewClientResponses::GetChainInfo(ChainInfo {
-                    genesis_id: Default::default(),
                     tracked_shards: vec![],
-                    archival: false,
 
                     height: 1,
-                    this_epoch: Arc::new(EpochInfo {
+                    this_epoch: Arc::new(NetworkEpochInfo {
                         id: EpochId::default(),
                         priority_accounts: HashMap::new(),
                     }),
-                    next_epoch: Arc::new(EpochInfo {
+                    next_epoch: Arc::new(NetworkEpochInfo {
                         id: EpochId::default(),
                         priority_accounts: HashMap::new(),
                     }),
@@ -69,8 +69,14 @@ fn make_peer_manager(
     }))
     .start();
 
-    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-        .unwrap()
+    PeerManagerActor::new(
+        store,
+        config,
+        client_addr.recipient(),
+        view_client_addr.recipient(),
+        GenesisId::default(),
+    )
+    .unwrap()
 }
 
 #[test]

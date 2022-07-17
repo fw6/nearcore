@@ -11,6 +11,7 @@ use tracing::info;
 use near_actix_test_utils::run_actix;
 use near_client::{ClientActor, ViewClientActor};
 use near_logger_utils::init_test_logger_allow_panic;
+use near_primitives::block::GenesisId;
 
 use near_network::test_utils::{
     convert_boot_nodes, open_port, GetInfo, StopSignal, WaitOrTimeoutActor,
@@ -18,7 +19,8 @@ use near_network::test_utils::{
 use near_network::types::NetworkClientResponses;
 use near_network::PeerManagerActor;
 use near_network_primitives::types::{
-    ChainInfo, EpochInfo, NetworkConfig, NetworkViewClientMessages, NetworkViewClientResponses,
+    ChainInfo, NetworkConfig, NetworkEpochInfo, NetworkViewClientMessages,
+    NetworkViewClientResponses,
 };
 use near_primitives::types::EpochId;
 use near_store::test_utils::create_test_store;
@@ -39,16 +41,13 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         match msg {
             NetworkViewClientMessages::GetChainInfo => {
                 Box::new(Some(NetworkViewClientResponses::GetChainInfo(ChainInfo {
-                    genesis_id: Default::default(),
                     tracked_shards: vec![],
-                    archival: false,
-
                     height: 1,
-                    this_epoch: Arc::new(EpochInfo {
+                    this_epoch: Arc::new(NetworkEpochInfo {
                         id: EpochId::default(),
                         priority_accounts: HashMap::new(),
                     }),
-                    next_epoch: Arc::new(EpochInfo {
+                    next_epoch: Arc::new(NetworkEpochInfo {
                         id: EpochId::default(),
                         priority_accounts: HashMap::new(),
                     }),
@@ -58,8 +57,14 @@ fn make_peer_manager(seed: &str, port: u16, boot_nodes: Vec<(&str, u16)>) -> Pee
         }
     }))
     .start();
-    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-        .unwrap()
+    PeerManagerActor::new(
+        store,
+        config,
+        client_addr.recipient(),
+        view_client_addr.recipient(),
+        GenesisId::default(),
+    )
+    .unwrap()
 }
 
 /// This test spawns several (7) nodes but node 0 crash very frequently and restart.

@@ -169,17 +169,6 @@ impl From<PeerChainInfo> for PeerChainInfoV2 {
     }
 }
 
-impl From<crate::types::ChainInfo> for PeerChainInfoV2 {
-    fn from(info: crate::types::ChainInfo) -> Self {
-        Self {
-            genesis_id: info.genesis_id,
-            height: info.height,
-            tracked_shards: info.tracked_shards,
-            archival: info.archival,
-        }
-    }
-}
-
 /// Test code that someone become part of our protocol?
 #[cfg_attr(feature = "deepsize_feature", derive(deepsize::DeepSizeOf))]
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Eq, Clone, Debug, Hash)]

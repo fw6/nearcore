@@ -30,7 +30,6 @@ use near_network_primitives::types::{
 use near_network_primitives::types::{Edge, PartialEdgeInfo};
 use near_performance_metrics::framed_write::{FramedWrite, WriteHandler};
 use near_performance_metrics_macros::perf;
-use near_primitives::block::GenesisId;
 use near_primitives::logging;
 use near_primitives::network::PeerId;
 use near_primitives::sharding::PartialEncodedChunk;
@@ -107,8 +106,6 @@ pub(crate) struct PeerActor {
     peer_manager_wrapper_addr: Recipient<ActixMessageWrapper<PeerToManagerMsg>>,
     /// Tracker for requests and responses.
     tracker: Tracker,
-    /// This node genesis id.
-    genesis_id: GenesisId,
     /// Latest chain info from the peer.
     chain_info: PeerChainInfoV2,
     /// Edge information needed to build the real edge. This is relevant for handshake.
@@ -184,7 +181,6 @@ impl PeerActor {
             peer_manager_addr,
             peer_manager_wrapper_addr,
             tracker: Default::default(),
-            genesis_id: Default::default(),
             chain_info: Default::default(),
             partial_edge_info,
             last_time_received_message_update: now,
@@ -270,15 +266,6 @@ impl PeerActor {
         Ok(())
     }
 
-    fn fetch_client_chain_info(&self, ctx: &mut Context<PeerActor>) {
-        ctx.wait(self.peer_manager_state.clone().get_chain_info().into_actor(self).then(
-            move |info, act, _ctx| {
-                act.genesis_id = info.genesis_id;
-                actix::fut::ready(())
-            },
-        ));
-    }
-
     fn send_handshake(&self, ctx: &mut Context<PeerActor>) {
         if self.other_peer_id().is_none() {
             error!(target: "network", "Sending handshake to an unknown peer");
@@ -295,10 +282,10 @@ impl PeerActor {
                         act.other_peer_id().unwrap().clone(),
                         act.my_node_info.addr_port(),
                         PeerChainInfoV2 {
-                            genesis_id: info.genesis_id,
+                            genesis_id: act.peer_manager_state.genesis_id.clone(),
                             height: info.height,
                             tracked_shards: info.tracked_shards,
-                            archival: info.archival,
+                            archival: act.peer_manager_state.config.archive,
                         },
                         act.partial_edge_info.as_ref().unwrap().clone(),
                     )),
@@ -634,9 +621,6 @@ impl Actor for PeerActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         metrics::PEER_CONNECTIONS_TOTAL.inc();
-        // Fetch genesis hash from the client.
-        self.fetch_client_chain_info(ctx);
-
         debug!(target: "network", "{:?}: Peer {:?} {:?} started", self.my_node_info.id, self.peer_addr, self.peer_type);
         // Set Handshake timeout for stopping actor if peer is not ready after given period of time.
 
@@ -756,7 +740,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
             (_, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
                     HandshakeFailureReason::GenesisMismatch(genesis) => {
-                        warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.genesis_id, genesis);
+                        warn!(target: "network", "Attempting to connect to a node ({}) with a different genesis block. Our genesis: {:?}, their genesis: {:?}", peer_info, self.peer_manager_state.genesis_id, genesis);
                     }
                     HandshakeFailureReason::ProtocolVersionMismatch {
                         version,
@@ -813,11 +797,12 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                 let target_version = std::cmp::min(handshake.protocol_version, PROTOCOL_VERSION);
                 self.protocol_version = target_version;
 
-                if handshake.sender_chain_info.genesis_id != self.genesis_id {
+                let genesis_id = self.peer_manager_state.genesis_id.clone();
+                if handshake.sender_chain_info.genesis_id != genesis_id {
                     debug!(target: "network", "Received connection from node with different genesis.");
                     self.send_message_or_log(&PeerMessage::HandshakeFailure(
                         self.my_node_info.clone(),
-                        HandshakeFailureReason::GenesisMismatch(self.genesis_id.clone()),
+                        HandshakeFailureReason::GenesisMismatch(genesis_id),
                     ));
                     return;
                     // Connection will be closed by a handshake timeout
@@ -1064,6 +1049,7 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                         accounts_data::Error::InvalidSignature => ReasonForBan::InvalidSignature,
                         accounts_data::Error::DataTooLarge => ReasonForBan::Abusive,
                         accounts_data::Error::SingleAccountMultipleData => ReasonForBan::Abusive,
+                        accounts_data::Error::InvalidAccount => ReasonForBan::Abusive,
                     })
                 }
                 .into_actor(self)

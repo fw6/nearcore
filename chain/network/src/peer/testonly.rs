@@ -236,6 +236,8 @@ impl PeerHandle {
                     rate_limiter,
                     cfg.force_encoding,
                     Arc::new(PeerManagerState {
+                        config: Arc::new(cfg.chain.make_config(my_addr.port())),
+                        genesis_id: cfg.chain.genesis_id.clone(),
                         client_addr: fc.clone().recipient(),
                         view_client_addr: fc.clone().recipient(),
                         accounts_data: Arc::new(accounts_data::Cache::new()),

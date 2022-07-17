@@ -10,7 +10,6 @@ use crate::testonly::{make_rng, AsSet as _};
 use crate::types::{PeerMessage, RoutingTableUpdate};
 use near_logger_utils::init_test_logger;
 use near_network_primitives::time;
-use near_network_primitives::types::NetworkConfig;
 use near_network_primitives::types::{Ping, RoutedMessageBody};
 use near_primitives::network::PeerId;
 use pretty_assertions::assert_eq;
@@ -29,8 +28,7 @@ async fn repeated_data_in_sync_routing_table() {
     let mut clock = time::FakeClock::default();
     let port = crate::test_utils::open_port();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm =
-        peer_manager::testonly::start(chain.clone(), NetworkConfig::from_seed("test1", port)).await;
+    let pm = peer_manager::testonly::start(chain.clone(), chain.make_config(port)).await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -97,8 +95,7 @@ async fn ttl() {
     let mut clock = time::FakeClock::default();
     let port = crate::test_utils::open_port();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let mut pm =
-        peer_manager::testonly::start(chain.clone(), NetworkConfig::from_seed("test1", port)).await;
+    let mut pm = peer_manager::testonly::start(chain.clone(), chain.make_config(port)).await;
     let cfg = peer::testonly::PeerConfig {
         signer: data::make_signer(rng),
         chain,
@@ -159,8 +156,7 @@ async fn accounts_data_broadcast() {
     let mut clock = time::FakeClock::default();
     let port = crate::test_utils::open_port();
     let chain = Arc::new(data::Chain::make(&mut clock, rng, 10));
-    let pm =
-        peer_manager::testonly::start(chain.clone(), NetworkConfig::from_seed("test1", port)).await;
+    let pm = peer_manager::testonly::start(chain.clone(), chain.make_config(port)).await;
 
     let add_peer = |signer| async {
         let cfg = peer::testonly::PeerConfig {

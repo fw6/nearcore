@@ -31,11 +31,11 @@ use near_network::types::{NetworkRequests, PeerManagerAdapter, PeerManagerMessag
 #[cfg(feature = "test_features")]
 use near_network_primitives::types::NetworkAdversarialMessage;
 use near_network_primitives::types::{
-    ChainInfo, EpochInfo, NetworkViewClientMessages, NetworkViewClientResponses, ReasonForBan,
-    StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
+    ChainInfo, NetworkEpochInfo, NetworkViewClientMessages, NetworkViewClientResponses,
+    ReasonForBan, StateResponseInfo, StateResponseInfoV1, StateResponseInfoV2,
 };
 use near_performance_metrics_macros::{perf, perf_with_debug};
-use near_primitives::block::{Block, BlockHeader, GenesisId, Tip};
+use near_primitives::block::{Block, BlockHeader, Tip};
 use near_primitives::hash::CryptoHash;
 use near_primitives::merkle::{merklize, PartialMerkleTree};
 use near_primitives::network::AnnounceAccount;
@@ -136,19 +136,17 @@ impl ViewClientActor {
         )?;
         let genesis = chain.genesis();
         let chain_info = ChainInfo {
-            genesis_id: GenesisId { chain_id: config.chain_id.clone(), hash: *genesis.hash() },
             height: genesis.height(),
             // TODO: call runtime_adapter to extract the initial set of validators.
-            this_epoch: Arc::new(EpochInfo {
+            this_epoch: Arc::new(NetworkEpochInfo {
                 id: genesis.epoch_id().clone(),
                 priority_accounts: HashMap::default(),
             }),
-            next_epoch: Arc::new(EpochInfo {
+            next_epoch: Arc::new(NetworkEpochInfo {
                 id: genesis.next_epoch_id().clone(),
                 priority_accounts: HashMap::default(),
             }),
             tracked_shards: config.tracked_shards.clone(),
-            archival: config.archive,
         };
         Ok(ViewClientActor {
             adv,
@@ -555,7 +553,7 @@ impl ViewClientActor {
                     .runtime_adapter
                     .get_validator_info(ValidatorInfoIdentifier::EpochId(head.epoch_id.clone()))
                     .context("runtime_adapter.get_validator_info()")?;
-                chain_info.this_epoch = Arc::new(EpochInfo {
+                chain_info.this_epoch = Arc::new(NetworkEpochInfo {
                     id: head.epoch_id,
                     priority_accounts: info
                         .current_validators
@@ -563,7 +561,7 @@ impl ViewClientActor {
                         .map(|v| (v.account_id, v.public_key))
                         .collect(),
                 });
-                chain_info.next_epoch = Arc::new(EpochInfo {
+                chain_info.next_epoch = Arc::new(NetworkEpochInfo {
                     id: head.next_epoch_id,
                     priority_accounts: info
                         .next_validators
@@ -1370,6 +1368,8 @@ impl Handler<NetworkViewClientMessages> for ViewClientActor {
                         // and cases when we were just unable to validate the data (so we shouldn't
                         // ban), for example when the node is not aware of the public key for the given
                         // (account_id,epoch_id) pair.
+                        // We currently do NOT ban the peer for either.
+                        // TODO(gprusak): consider whether we should change that.
                         Err(e) => {
                             debug!(target: "view_client", "Failed to validate account announce signature: {}", e);
                         }

@@ -26,12 +26,19 @@ pub async fn start(chain: Arc<data::Chain>, cfg: NetworkConfig) -> ActorHandler 
     let actix = ActixSystem::spawn({
         let cfg = cfg.clone();
         move || {
+            let genesis_id = chain.genesis_id.clone();
             let store = create_test_store();
             let fc = fake_client::start(chain, send.sink().compose(Event::Client));
-            PeerManagerActor::new(store, cfg, fc.clone().recipient(), fc.clone().recipient())
-                .unwrap()
-                .with_event_sink(send.sink().compose(Event::PeerManager))
-                .start()
+            PeerManagerActor::new(
+                store,
+                cfg,
+                fc.clone().recipient(),
+                fc.clone().recipient(),
+                genesis_id,
+            )
+            .unwrap()
+            .with_event_sink(send.sink().compose(Event::PeerManager))
+            .start()
         }
     })
     .await;

@@ -47,7 +47,7 @@ impl actix::Handler<NetworkViewClientMessages> for Actor {
     fn handle(&mut self, msg: NetworkViewClientMessages, _ctx: &mut Self::Context) -> Self::Result {
         match msg {
             NetworkViewClientMessages::GetChainInfo => {
-                NetworkViewClientResponses::GetChainInfo(self.chain.get_info())
+                NetworkViewClientResponses::GetChainInfo(self.chain.get_chain_info())
             }
             NetworkViewClientMessages::BlockRequest(block_hash) => {
                 self.event_sink.push(Event::BlockRequest(block_hash));

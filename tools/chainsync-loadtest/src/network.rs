@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::concurrency::{Ctx, Once, RateLimiter, Scope, WeakMap};
 
 use near_network_primitives::types::{
-    AccountIdOrPeerTrackingShard, ChainInfo, EpochInfo, NetworkViewClientMessages,
+    AccountIdOrPeerTrackingShard, ChainInfo, NetworkEpochInfo, NetworkViewClientMessages,
     NetworkViewClientResponses, PartialEncodedChunkRequestMsg, PartialEncodedChunkResponseMsg,
 };
 
@@ -13,7 +13,7 @@ use near_network::types::{
     FullPeerInfo, NetworkClientMessages, NetworkClientResponses, NetworkInfo, NetworkRequests,
     PeerManagerAdapter, PeerManagerMessageRequest,
 };
-use near_primitives::block::{Block, BlockHeader, GenesisId};
+use near_primitives::block::{Block, BlockHeader};
 use near_primitives::hash::CryptoHash;
 use near_primitives::sharding::{ChunkHash, ShardChunkHeader};
 use near_primitives::time::Clock;
@@ -26,19 +26,6 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use tokio::time;
-
-fn genesis_hash(chain_id: &str) -> CryptoHash {
-    return match chain_id {
-        "mainnet" => "EPnLgE7iEq9s7yTkos96M3cWymH5avBAPm3qx3NXqR8H",
-        "testnet" => "FWJ9kR6KFWoyMoNjpLXXGHeuiy7tEY6GmoFeCA5yuc6b",
-        "betanet" => "6hy7VoEJhPEUaJr1d5ePBhKdgeDWKCjLoUAn7XS9YPj",
-        _ => {
-            return Default::default();
-        }
-    }
-    .parse()
-    .unwrap();
-}
 
 #[derive(Default, Debug)]
 pub struct Stats {
@@ -70,7 +57,6 @@ pub struct Network {
     pub chunks: Arc<WeakMap<ChunkHash, Once<PartialEncodedChunkResponseMsg>>>,
     data: Mutex<NetworkData>,
 
-    chain_id: String,
     // client_config.min_num_peers
     min_peers: usize,
     // Currently it is equivalent to genesis_config.num_block_producer_seats,
@@ -108,7 +94,6 @@ impl Network {
             block_headers: WeakMap::new(),
             chunks: WeakMap::new(),
 
-            chain_id: config.client_config.chain_id.clone(),
             min_peers: config.client_config.min_num_peers,
             parts_per_chunk: config.genesis.config.num_block_producer_seats,
             rate_limiter: RateLimiter::new(
@@ -325,19 +310,13 @@ impl Handler<NetworkViewClientMessages> for FakeClientActor {
             }
             NetworkViewClientMessages::GetChainInfo => {
                 return NetworkViewClientResponses::GetChainInfo(ChainInfo {
-                    genesis_id: GenesisId {
-                        chain_id: self.network.chain_id.clone(),
-                        hash: genesis_hash(&self.network.chain_id),
-                    },
                     tracked_shards: Default::default(),
-                    archival: false,
-
                     height: 0,
-                    this_epoch: Arc::new(EpochInfo {
+                    this_epoch: Arc::new(NetworkEpochInfo {
                         id: EpochId::default(),
                         priority_accounts: HashMap::default(),
                     }),
-                    next_epoch: Arc::new(EpochInfo {
+                    next_epoch: Arc::new(NetworkEpochInfo {
                         id: EpochId::default(),
                         priority_accounts: HashMap::default(),
                     }),

@@ -4,7 +4,7 @@ use crate::network_protocol::{AccountData, SignedAccountData};
 use crate::testonly::{make_rng, AsSet as _, Rng};
 use near_crypto::{InMemorySigner, SecretKey};
 use near_network_primitives::time;
-use near_network_primitives::types::EpochInfo;
+use near_network_primitives::types::NetworkEpochInfo;
 use near_primitives::types::{AccountId, EpochId};
 use pretty_assertions::assert_eq;
 use std::collections::HashMap;
@@ -22,9 +22,9 @@ impl Signers {
             .or_insert_with(|| data::make_secret_key(rng))
     }
 
-    fn make_epoch(&mut self, rng: &mut Rng, account_ids: &[&AccountId]) -> EpochInfo {
+    fn make_epoch(&mut self, rng: &mut Rng, account_ids: &[&AccountId]) -> NetworkEpochInfo {
         let epoch_id = data::make_epoch_id(rng);
-        EpochInfo {
+        NetworkEpochInfo {
             id: epoch_id.clone(),
             priority_accounts: account_ids
                 .iter()
@@ -60,8 +60,12 @@ impl Signers {
     }
 }
 
-fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E>(v: &'a (T, Option<E>)) -> &'a T {
-    assert!(v.1.is_none());
+fn unwrap<'a, T: std::hash::Hash + std::cmp::Eq, E: std::fmt::Debug>(
+    v: &'a (T, Option<E>),
+) -> &'a T {
+    if let Some(err) = &v.1 {
+        panic!("unexpected error: {err:?}");
+    }
     &v.0
 }
 
@@ -97,7 +101,6 @@ async fn happy_path() {
     let e0a1old =
         signers.make_account_data(rng, &e0.id, &accounts[1], now - time::Duration::seconds(1));
     let e2a1 = signers.make_account_data(rng, &e2.id, &accounts[1], now);
-    let e1a1 = signers.make_account_data(rng, &e1.id, &accounts[2], now);
     let res = cache
         .clone()
         .insert(vec![
@@ -105,7 +108,6 @@ async fn happy_path() {
             e0a0new.clone(), // with newer timestamp => insert,
             e0a1old.clone(), // with older timestamp => filter out,
             e2a1.clone(),    // from inactive epoch => filter out,
-            e1a1.clone(),    // account not in the given active epoch => filter out,
         ])
         .await;
     assert_eq!([&e1a0, &e0a0new].as_set(), unwrap(&res).as_set());
@@ -160,6 +162,32 @@ async fn data_too_large() {
     assert_eq!(Some(Error::DataTooLarge), res.1);
     // Partial update is allowed, in case an error is encountered.
     assert!([&a0, &a1].as_set().is_superset(&res.0.as_set()));
+    // Partial update should match the state.
+    assert_eq!(res.0.as_set(), cache.dump().as_set());
+}
+
+#[tokio::test]
+async fn invalid_account() {
+    let mut rng = make_rng(2947294234);
+    let rng = &mut rng;
+    let clock = time::FakeClock::default();
+    let now = clock.now_utc();
+
+    let accounts: Vec<_> = (0..2).map(|_| data::make_account_id(rng)).collect();
+    let mut signers = Signers::default();
+    let e1 = signers.make_epoch(rng, &[&accounts[0]]);
+    let e2 = signers.make_epoch(rng, &[&accounts[1]]);
+
+    let cache = Arc::new(Cache::new());
+    cache.set_epochs(vec![&e1, &e2]);
+    let a0 = signers.make_account_data(rng, &e1.id, &accounts[0], now);
+    // Account 1 is active in epoch e2, not e1. It should cause InvalidAccount error.
+    let a1 = signers.make_account_data(rng, &e1.id, &accounts[1], now);
+
+    let res = cache.clone().insert(vec![a0.clone(), a1.clone()]).await;
+    assert_eq!(Some(Error::InvalidAccount), res.1);
+    // Partial update is allowed, in case an error is encountered.
+    assert!([&a0].as_set().is_superset(&res.0.as_set()));
     // Partial update should match the state.
     assert_eq!(res.0.as_set(), cache.dump().as_set());
 }

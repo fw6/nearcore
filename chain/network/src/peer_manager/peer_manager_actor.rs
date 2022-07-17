@@ -36,6 +36,7 @@ use near_network_primitives::types::{
 use near_network_primitives::types::{EdgeState, PartialEdgeInfo};
 use near_performance_metrics::framed_write::FramedWrite;
 use near_performance_metrics_macros::perf;
+use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::network::{AnnounceAccount, PeerId};
 use near_primitives::types::{AccountId, EpochId};
@@ -146,6 +147,10 @@ impl TryFrom<&PeerInfo> for WhitelistNode {
 }
 
 pub(crate) struct PeerManagerState {
+    /// PeerManager config.
+    pub config: Arc<NetworkConfig>,
+    /// GenesisId of the chain.
+    pub genesis_id: GenesisId,
     /// Address of the client actor.
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
@@ -202,6 +207,11 @@ impl PeerManagerState {
     pub async fn get_chain_info(self: Arc<Self>) -> ChainInfo {
         match self.view_client_addr.send(NetworkViewClientMessages::GetChainInfo).await.unwrap() {
             NetworkViewClientResponses::GetChainInfo(info) => info,
+            // GetChainInfo request has to return GetChainInfo response,
+            // otherwise there is a bug and we panic.
+            // TODO(gprusak): we should rather have a separate (actix) handler
+            // per request type, so that this invariant is enforced by the
+            // type system.
             resp => panic!("expected GetChainInfo, got {resp:?}"),
         }
     }
@@ -211,7 +221,15 @@ impl PeerManagerState {
 pub struct PeerManagerActor {
     clock: time::Clock,
     /// Networking configuration.
-    config: NetworkConfig,
+    /// TODO(gprusak): this field is duplicated with
+    /// PeerManagerState.config. Remove it from here.
+    config: Arc<NetworkConfig>,
+    /// Maximal allowed number of peer connections.
+    /// It is initialized with config.max_num_peers and is mutable
+    /// only so that it can be changed in tests.
+    /// TODO(gprusak): determine why tests need to change that dynamically
+    /// in the first place.
+    max_num_peers: u32,
     /// Peer information for this node.
     my_peer_id: PeerId,
     /// Peer store that provides read/write access to peers.
@@ -342,6 +360,7 @@ impl PeerManagerActor {
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
+        genesis_id: GenesisId,
     ) -> anyhow::Result<Self> {
         let clock = time::Clock::real();
         let peer_store = PeerStore::new(
@@ -374,10 +393,12 @@ impl PeerManagerActor {
             v
         };
 
+        let config = Arc::new(config);
         Ok(Self {
             clock,
             my_peer_id,
-            config,
+            config: config.clone(),
+            max_num_peers: config.max_num_peers,
             peer_store,
             outgoing_peers: HashSet::default(),
             routing_table_view,
@@ -391,6 +412,8 @@ impl PeerManagerActor {
             whitelist_nodes,
             event_sink: Sink::void(),
             state: Arc::new(PeerManagerState {
+                config: config.clone(),
+                genesis_id,
                 client_addr,
                 view_client_addr,
                 network_metrics: Default::default(),
@@ -910,14 +933,14 @@ impl PeerManagerActor {
             + self.outgoing_peers.len();
 
         (total_connections < self.config.ideal_connections_lo as usize
-            || (total_connections < self.config.max_num_peers as usize
+            || (total_connections < self.max_num_peers as usize
                 && potential_outgoing_connections < self.config.minimum_outbound_peers as usize))
             && !self.config.outbound_disabled
     }
 
     fn is_inbound_allowed(&self) -> bool {
         self.state.connected_peers.read().len() + self.outgoing_peers.len()
-            < self.config.max_num_peers as usize
+            < self.max_num_peers as usize
     }
 
     /// is_peer_whitelisted checks whether a peer is a whitelisted node.
@@ -1437,7 +1460,7 @@ impl PeerManagerActor {
                 .map(|cp| cp.full_peer_info.clone())
                 .collect(),
             num_connected_peers: connected_peers.len(),
-            peer_max_count: self.config.max_num_peers,
+            peer_max_count: self.max_num_peers,
             highest_height_peers: self.highest_height_peers(),
             sent_bytes_per_sec: connected_peers.values().map(|x| x.sent_bytes_per_sec).sum(),
             received_bytes_per_sec: (connected_peers.values())
@@ -1715,7 +1738,7 @@ impl PeerManagerActor {
     #[perf]
     fn handle_msg_set_adv_options(&mut self, msg: crate::test_utils::SetAdvOptions) {
         if let Some(set_max_peers) = msg.set_max_peers {
-            self.config.max_num_peers = set_max_peers as u32;
+            self.max_num_peers = set_max_peers as u32;
         }
     }
 
@@ -1826,7 +1849,7 @@ impl PeerManagerActor {
             // TODO(1896): Gracefully drop inbound connection for other peer.
             debug!(target: "network",
                 connected_peers = self.state.connected_peers.read().len(), outgoing_peers = self.outgoing_peers.len(),
-                max_num_peers = self.config.max_num_peers,
+                max_num_peers = self.max_num_peers,
                 "Inbound connection dropped (network at max capacity)."
             );
             return RegisterPeerResponse::Reject;
@@ -1989,7 +2012,7 @@ impl PeerManagerActor {
             }
             PeerToManagerMsg::InboundTcpConnect(msg) => {
                 if self.peer_counter.load(Ordering::SeqCst)
-                    < self.config.max_num_peers as usize + LIMIT_PENDING_PEERS
+                    < self.max_num_peers as usize + LIMIT_PENDING_PEERS
                 {
                     self.handle_msg_inbound_tcp_connect(msg, ctx);
                 }
