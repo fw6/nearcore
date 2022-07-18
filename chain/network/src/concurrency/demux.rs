@@ -56,7 +56,7 @@ where
 /// letting through requests at frequency `qps`.
 /// In case a number of requests come after a period of inactivity, semaphore will immediately
 /// let through up to `burst` requests, before going into the previous mode.
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct RateLimit {
     pub burst: u64,
     pub qps: f64,
@@ -93,11 +93,18 @@ type Stream<Arg, Res> = mpsc::UnboundedSender<Call<Arg, Res>>;
 pub struct Demux<Arg, Res>(Stream<Arg, Res>);
 
 impl<Arg: 'static + Send, Res: 'static + Send> Demux<Arg, Res> {
-    pub async fn call(&self, arg: Arg, f: impl AsyncFn<Vec<Arg>, Vec<Res>>) -> Option<Res> {
-        let (send, recv) = oneshot::channel();
-        // ok().unwrap(), because DemuxCall doesn't implement Debug.
-        self.0.send(Call { arg, out: send, handler: f.wrap() }).ok().unwrap();
-        recv.await.ok()
+    pub fn call(
+        &self,
+        arg: Arg,
+        f: impl AsyncFn<Vec<Arg>, Vec<Res>>,
+    ) -> impl std::future::Future<Output = Res> {
+        let stream = self.0.clone();
+        async move {
+            let (send, recv) = oneshot::channel();
+            // ok().unwrap(), because DemuxCall doesn't implement Debug.
+            stream.send(Call { arg, out: send, handler: f.wrap() }).ok().unwrap();
+            recv.await.unwrap()
+        }
     }
 
     pub fn new(rl: RateLimit) -> Demux<Arg, Res> {

@@ -123,6 +123,41 @@ pub(crate) struct ConnectedPeer {
     throttle_controller: ThrottleController,
     /// Encoding used for communication.
     encoding: Option<Encoding>,
+
+    send_accounts_data_demux: demux::Demux<Vec<SignedAccountData>, ()>,
+}
+
+impl ConnectedPeer {
+    pub fn send_accounts_data(
+        &self,
+        data: Vec<SignedAccountData>,
+    ) -> impl std::future::Future<Output = ()> {
+        let addr = self.addr.clone();
+        self.send_accounts_data_demux.call(data, |ds: Vec<Vec<SignedAccountData>>| async move {
+            let res = ds.iter().map(|_| ()).collect();
+            let mut sum = HashMap::<_, SignedAccountData>::new();
+            for d in ds.into_iter().flatten() {
+                let k = (d.epoch_id.clone(), d.account_id.clone());
+                if match sum.get(&k) {
+                    None => true,
+                    Some(x) => x.timestamp < d.timestamp,
+                } {
+                    sum.insert(k, d);
+                }
+            }
+            addr.send(SendMessage {
+                message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                    incremental: true,
+                    requesting_full_sync: false,
+                    accounts_data: sum.into_iter().map(|v| v.1).collect(),
+                }),
+                context: Span::current().context(),
+            })
+            .await
+            .expect("Failed sending incremental SyncAccountsData");
+            res
+        })
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -152,6 +187,7 @@ pub(crate) struct PeerManagerState {
     pub config: Arc<NetworkConfig>,
     /// GenesisId of the chain.
     pub genesis_id: GenesisId,
+    pub send_accounts_data_rl: demux::RateLimit,
     /// Address of the client actor.
     pub client_addr: Recipient<NetworkClientMessages>,
     /// Address of the view client actor.
@@ -162,7 +198,6 @@ pub(crate) struct PeerManagerState {
     pub connected_peers: RwLock<HashMap<PeerId, ConnectedPeer>>,
     /// Dynamic Prometheus metrics
     pub network_metrics: NetworkMetrics,
-    broadcast_accounts_data_demux: demux::Demux<Vec<SignedAccountData>, ()>,
 }
 
 impl PeerManagerState {
@@ -171,7 +206,7 @@ impl PeerManagerState {
         genesis_id: GenesisId,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
-        accounts_data_broadcast_max_qps: f64,
+        send_accounts_data_max_qps: f64,
     ) -> Self {
         Self {
             config,
@@ -181,40 +216,8 @@ impl PeerManagerState {
             network_metrics: Default::default(),
             connected_peers: RwLock::new(HashMap::default()),
             accounts_data: Arc::new(accounts_data::Cache::new()),
-            broadcast_accounts_data_demux: demux::Demux::new(demux::RateLimit {
-                qps: accounts_data_broadcast_max_qps,
-                burst: 1,
-            }),
+            send_accounts_data_rl: demux::RateLimit { qps: send_accounts_data_max_qps, burst: 1 },
         }
-    }
-
-    pub async fn broadcast_accounts_data(self: Arc<Self>, data: Vec<SignedAccountData>) {
-        self.broadcast_accounts_data_demux
-            .clone()
-            .call(data, |ds: Vec<Vec<SignedAccountData>>| async move {
-                let res = ds.iter().map(|_| ()).collect();
-                let mut sum = HashMap::<_, SignedAccountData>::new();
-                for d in ds.into_iter().flatten() {
-                    let k = (d.epoch_id.clone(), d.account_id.clone());
-                    if match sum.get(&k) {
-                        None => true,
-                        Some(x) => x.timestamp < d.timestamp,
-                    } {
-                        sum.insert(k, d);
-                    }
-                }
-                self.broadcast_message(SendMessage {
-                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
-                        incremental: true,
-                        requesting_full_sync: false,
-                        accounts_data: sum.into_iter().map(|v| v.1).collect(),
-                    }),
-                    context: Span::current().context(),
-                })
-                .await;
-                res
-            })
-            .await;
     }
 
     /// Broadcast message to all active peers.
@@ -731,6 +734,7 @@ impl PeerManagerActor {
                 peer_type,
                 throttle_controller: throttle_controller.clone(),
                 encoding: None,
+                send_accounts_data_demux: demux::Demux::new(self.state.send_accounts_data_rl),
             },
         );
 

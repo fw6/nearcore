@@ -1033,7 +1033,15 @@ impl StreamHandler<Result<Vec<u8>, ReasonForBan>> for PeerActor {
                     let (new_data, err) = pms.accounts_data.clone().insert(msg.accounts_data).await;
                     // Broadcast any new data we have found.
                     if new_data.len() > 0 {
-                        pms.broadcast_accounts_data(new_data).await;
+                        let handles: Vec<_> = pms
+                            .connected_peers
+                            .read()
+                            .values()
+                            .map(|p| tokio::spawn(p.send_accounts_data(new_data.clone())))
+                            .collect();
+                        for h in handles {
+                            h.await.unwrap();
+                        }
                     }
                     err.map(|err| match err {
                         accounts_data::Error::InvalidSignature => ReasonForBan::InvalidSignature,
