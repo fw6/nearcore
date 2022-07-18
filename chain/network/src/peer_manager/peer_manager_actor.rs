@@ -49,7 +49,7 @@ use parking_lot::RwLock;
 use rand::seq::IteratorRandom;
 use rand::thread_rng;
 use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Sub;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -137,19 +137,22 @@ impl ConnectedPeer {
             let res = ds.iter().map(|_| ()).collect();
             let mut sum = HashMap::<_, SignedAccountData>::new();
             for d in ds.into_iter().flatten() {
-                let k = (d.epoch_id.clone(), d.account_id.clone());
-                if match sum.get(&k) {
-                    None => true,
-                    Some(x) => x.timestamp < d.timestamp,
-                } {
-                    sum.insert(k, d);
+                match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                    Entry::Occupied(mut x) => {
+                        if x.get().timestamp < d.timestamp {
+                            x.insert(d);
+                        }
+                    }
+                    Entry::Vacant(x) => {
+                        x.insert(d);
+                    }
                 }
             }
             addr.send(SendMessage {
                 message: PeerMessage::SyncAccountsData(SyncAccountsData {
                     incremental: true,
                     requesting_full_sync: false,
-                    accounts_data: sum.into_iter().map(|v| v.1).collect(),
+                    accounts_data: sum.into_values().collect(),
                 }),
                 context: Span::current().context(),
             })
