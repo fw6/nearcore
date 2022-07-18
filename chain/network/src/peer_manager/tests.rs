@@ -192,14 +192,16 @@ async fn accounts_data_broadcast() {
         .map(|signer| {
             let ip = data::make_ipv6(rng);
             let peer_addr = data::make_peer_addr(rng, ip);
-            AccountData {
-                peers: vec![peer_addr],
-                account_id: signer.account_id.clone(),
-                epoch_id: chain.tip().epoch_id().clone(),
-                timestamp: clock.now_utc(),
-            }
-            .sign(signer)
-            .unwrap()
+            Arc::new(
+                AccountData {
+                    peers: vec![peer_addr],
+                    account_id: signer.account_id.clone(),
+                    epoch_id: chain.tip().epoch_id().clone(),
+                    timestamp: clock.now_utc(),
+                }
+                .sign(signer)
+                .unwrap(),
+            )
         })
         .collect();
 

@@ -124,42 +124,45 @@ pub(crate) struct ConnectedPeer {
     /// Encoding used for communication.
     encoding: Option<Encoding>,
 
-    send_accounts_data_demux: demux::Demux<Vec<SignedAccountData>, ()>,
+    send_accounts_data_demux: demux::Demux<Vec<Arc<SignedAccountData>>, ()>,
 }
 
 impl ConnectedPeer {
     pub fn send_accounts_data(
         &self,
-        data: Vec<SignedAccountData>,
+        data: Vec<Arc<SignedAccountData>>,
     ) -> impl std::future::Future<Output = ()> {
         let addr = self.addr.clone();
-        self.send_accounts_data_demux.call(data, |ds: Vec<Vec<SignedAccountData>>| async move {
-            let res = ds.iter().map(|_| ()).collect();
-            let mut sum = HashMap::<_, SignedAccountData>::new();
-            for d in ds.into_iter().flatten() {
-                match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
-                    Entry::Occupied(mut x) => {
-                        if x.get().timestamp < d.timestamp {
+        self.send_accounts_data_demux.call(
+            data,
+            |ds: Vec<Vec<Arc<SignedAccountData>>>| async move {
+                let res = ds.iter().map(|_| ()).collect();
+                let mut sum = HashMap::<_, Arc<SignedAccountData>>::new();
+                for d in ds.into_iter().flatten() {
+                    match sum.entry((d.epoch_id.clone(), d.account_id.clone())) {
+                        Entry::Occupied(mut x) => {
+                            if x.get().timestamp < d.timestamp {
+                                x.insert(d);
+                            }
+                        }
+                        Entry::Vacant(x) => {
                             x.insert(d);
                         }
                     }
-                    Entry::Vacant(x) => {
-                        x.insert(d);
-                    }
                 }
-            }
-            addr.send(SendMessage {
-                message: PeerMessage::SyncAccountsData(SyncAccountsData {
-                    incremental: true,
-                    requesting_full_sync: false,
-                    accounts_data: sum.into_values().collect(),
-                }),
-                context: Span::current().context(),
-            })
-            .await
-            .expect("Failed sending incremental SyncAccountsData");
-            res
-        })
+                addr.send(SendMessage {
+                    message: PeerMessage::SyncAccountsData(SyncAccountsData {
+                        incremental: true,
+                        requesting_full_sync: false,
+                        accounts_data: sum.into_values().collect(),
+                    }),
+                    context: Span::current().context(),
+                })
+                .await
+                .expect("Failed sending incremental SyncAccountsData");
+                res
+            },
+        )
     }
 }
 

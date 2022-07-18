@@ -39,24 +39,26 @@ impl Signers {
         epoch_id: &EpochId,
         account_id: &AccountId,
         timestamp: time::Utc,
-    ) -> SignedAccountData {
+    ) -> Arc<SignedAccountData> {
         let signer = InMemorySigner::from_secret_key(
             account_id.clone(),
             self.key(rng, epoch_id, account_id).clone(),
         );
-        AccountData {
-            peers: (0..3)
-                .map(|_| {
-                    let ip = data::make_ipv6(rng);
-                    data::make_peer_addr(rng, ip)
-                })
-                .collect(),
-            account_id: account_id.clone(),
-            epoch_id: epoch_id.clone(),
-            timestamp,
-        }
-        .sign(&signer)
-        .unwrap()
+        Arc::new(
+            AccountData {
+                peers: (0..3)
+                    .map(|_| {
+                        let ip = data::make_ipv6(rng);
+                        data::make_peer_addr(rng, ip)
+                    })
+                    .collect(),
+                account_id: account_id.clone(),
+                epoch_id: epoch_id.clone(),
+                timestamp,
+            }
+            .sign(&signer)
+            .unwrap(),
+        )
     }
 }
 
@@ -146,9 +148,11 @@ async fn data_too_large() {
     cache.set_epochs(vec![&e]);
     let a0 = signers.make_account_data(rng, &e.id, &accounts[0], now);
     let a1 = signers.make_account_data(rng, &e.id, &accounts[1], now);
-    let mut a2_too_large = signers.make_account_data(rng, &e.id, &accounts[2], now);
+    let mut a2_too_large =
+        Arc::try_unwrap(signers.make_account_data(rng, &e.id, &accounts[2], now)).unwrap();
     *a2_too_large.payload_mut() =
         (0..crate::network_protocol::MAX_ACCOUNT_DATA_SIZE_BYTES + 1).map(|_| 17).collect();
+    let a2_too_large = Arc::new(a2_too_large);
 
     // too large payload => DataTooLarge
     let res = cache
@@ -206,9 +210,11 @@ async fn invalid_signature() {
     let cache = Arc::new(Cache::new());
     cache.set_epochs(vec![&e]);
     let a0 = signers.make_account_data(rng, &e.id, &accounts[0], now);
-    let mut a1 = signers.make_account_data(rng, &e.id, &accounts[1], now);
-    let mut a2_invalid_sig = signers.make_account_data(rng, &e.id, &accounts[2], now);
-    *a2_invalid_sig.signature_mut() = a1.signature_mut().clone();
+    let a1 = signers.make_account_data(rng, &e.id, &accounts[1], now);
+    let mut a2_invalid_sig =
+        Arc::try_unwrap(signers.make_account_data(rng, &e.id, &accounts[2], now)).unwrap();
+    *a2_invalid_sig.signature_mut() = a1.payload().signature().clone();
+    let a2_invalid_sig = Arc::new(a2_invalid_sig);
 
     // invalid signature => InvalidSignature
     let res = cache

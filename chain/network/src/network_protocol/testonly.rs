@@ -379,9 +379,9 @@ pub fn make_account_data(
     }
 }
 
-pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> SignedAccountData {
+pub fn make_signed_account_data(rng: &mut impl Rng, clock: &time::Clock) -> Arc<SignedAccountData> {
     let signer = make_signer(rng);
-    make_account_data(rng, clock, signer.account_id.clone()).sign(&signer).unwrap()
+    Arc::new(make_account_data(rng, clock, signer.account_id.clone()).sign(&signer).unwrap())
 }
 
 // Accessors for creating malformed SignedAccountData

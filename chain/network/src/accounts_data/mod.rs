@@ -38,7 +38,7 @@ mod tests;
 /// for this account.
 struct Account {
     key: PublicKey,
-    data: Option<SignedAccountData>,
+    data: Option<Arc<SignedAccountData>>,
 }
 
 impl Account {
@@ -79,7 +79,7 @@ pub(crate) enum Error {
 struct Epochs(HashMap<EpochId, Epoch>);
 
 impl Epochs {
-    fn try_insert(&mut self, d: SignedAccountData) -> Option<SignedAccountData> {
+    fn try_insert(&mut self, d: Arc<SignedAccountData>) -> Option<Arc<SignedAccountData>> {
         let mut a = self.0.get_mut(&d.epoch_id)?.0.get_mut(&d.account_id)?;
         if !a.is_new(d.timestamp) {
             return None;
@@ -152,7 +152,10 @@ impl Cache {
     /// Returns the verified new data and an optional error.
     /// Note that even if error has been returned the partially validated output is returned
     /// anyway.
-    fn verify(&self, data: Vec<SignedAccountData>) -> (Vec<SignedAccountData>, Option<Error>) {
+    fn verify(
+        &self,
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         // Filter out non-interesting data, so that we never check signatures for valid non-interesting data.
         // Bad peers may force us to check signatures for fake data anyway, but we will ban them after first invalid signature.
         // It locks epochs for reading for a short period.
@@ -208,8 +211,8 @@ impl Cache {
     /// WriteLock is acquired only for the final update (after verification).
     pub async fn insert(
         self: Arc<Self>,
-        data: Vec<SignedAccountData>,
-    ) -> (Vec<SignedAccountData>, Option<Error>) {
+        data: Vec<Arc<SignedAccountData>>,
+    ) -> (Vec<Arc<SignedAccountData>>, Option<Error>) {
         let x = self.clone();
         // Execute insertion in a dedicated runtime.
         self.runtime
@@ -225,7 +228,7 @@ impl Cache {
     }
 
     /// Copies and returns all the AccountData in the cache.
-    pub fn dump(&self) -> Vec<SignedAccountData> {
+    pub fn dump(&self) -> Vec<Arc<SignedAccountData>> {
         self.epochs
             .read()
             .0
