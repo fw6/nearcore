@@ -29,6 +29,22 @@
         tr.active {
             background-color: #eff8bf;
         }
+
+        .producer-green {
+            background-color: lightgreen;
+        }
+
+        .producer-yellow {
+            background-color: lightyellow;
+        }
+
+        .producer-red {
+            background-color: lightcoral;
+        }
+
+        .producer-dark-red {
+            background-color: red;
+        }
     </style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <script>
@@ -97,7 +113,7 @@
                     $('.js-tbody-epochs').append(row);
                 }
 
-                $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10)));
+                $('.js-head-validators').append($('<th>').append(epoch.epoch_id.substr(0, 10) + " [" + epoch.validators.length, ", " + epoch.chunk_only_producers.length + "]"));
                 // Use 2 bits to encode the validator's role in a given epoch.
                 // 00 -- not participated
                 // 01 -- block producer
@@ -111,7 +127,8 @@
                         validatorMap.set(account_id, value);
                     }
                 });
-                epoch.chunk_only_producers.forEach(account_id => {
+                epoch.chunk_only_producers.forEach(producer => {
+                    let account_id = producer;
                     let value = 2 ** (index * 2 + 1);
                     if (validatorMap.has(account_id)) {
                         validatorMap.set(account_id, validatorMap.get(account_id) + value);
@@ -137,21 +154,52 @@
                 maxShards = Math.max(epoch.shards_size_and_parts.length, maxShards);
             });
 
-
+            let validator_epoch_cell_map = new Map();
             validatorMap.forEach((value, key) => {
+                let single_validator_epoch_cell_map = new Map();
                 let row = $('<tr>').append($('<td>').append(key));
                 for (i = 0; i < epoch_data.status_response.EpochInfo.length; i += 1) {
                     let cell = $('<td>');
                     if (value & 2 ** (i * 2)) {
-                        cell.append('B');
+                        cell.append('B ');
                     } else if (value & 2 ** (i * 2 + 1)) {
-                        cell.append('C');
+                        cell.append('C ');
                     } else {
                         cell.append('0');
                     }
                     row.append(cell);
+                    single_validator_epoch_cell_map.set(epoch_data.status_response.EpochInfo[i].epoch_id, cell);
                 }
+                validator_epoch_cell_map.set(key, single_validator_epoch_cell_map)
                 $('.js-tbody-validators').append(row);
+            });
+
+            let next_epoch = epoch_data.status_response.EpochInfo[0];
+            let current_epoch = epoch_data.status_response.EpochInfo[1];
+
+            request_validator_stats((validator_data) => {
+                validator_data.result.current_validators.forEach(element => {
+                    let stake = Number((element.stake / 1000000000000000000000000).toFixed(1));
+                    let produced_fraction = (element.num_produced_blocks + element.num_produced_chunks) / (element.num_expected_blocks + element.num_expected_chunks);
+                    let cell_class = ""
+                    if (produced_fraction > 0.95) {
+                        cell_class = "producer-green";
+                    } else if (produced_fraction > 0.90) {
+                        cell_class = "producer-yellow";
+                    } else if (produced_fraction > 0.70) {
+                        cell_class = "producer-red";
+                    } else {
+                        cell_class = "producer-dark-red";
+                    }
+                    validator_epoch_cell_map.get(element.account_id).get(current_epoch.epoch_id).append(
+                        `${stake} ${Math.round(produced_fraction * 100)}% <br> (${element.num_produced_blocks} / ${element.num_expected_blocks}) <br> (${element.num_produced_chunks} / ${element.num_expected_chunks})`
+                    ).addClass(cell_class);
+                });
+                validator_data.result.next_validators.forEach(element => {
+                    let stake = Number((element.stake / 1000000000000000000000000).toFixed(1));
+                    validator_epoch_cell_map.get(element.account_id).get(next_epoch.epoch_id).append(
+                        `${stake}`);
+                });
             });
             for (const x of Array(maxShards).keys()) {
                 $('.js-head-shard-sizes').append($('<th colspan="2">').append("Shard " + x));
@@ -160,7 +208,6 @@
 
             }
         }
-
 
         function request_epoch_info(status_data) {
             $.ajax({
@@ -177,6 +224,26 @@
             })
         }
 
+        function request_validator_stats(on_success) {
+            $.ajax({
+                type: "POST",
+                url: "/",
+                data: JSON.stringify({
+                    "jsonrpc": "2.0",
+                    "id": "dontcare",
+                    "method": "validators",
+                    "params": [null]
+                }),
+                success: validator_data => {
+                    on_success(validator_data);
+                },
+                dataType: "json",
+                error: function (errMsg, textStatus, errorThrown) {
+                    alert("Failed: " + textStatus + " :" + errorThrown);
+                },
+                contentType: "application/json; charset=utf-8",
+            })
+        }
 
         $(document).ready(() => {
             $.ajax({
