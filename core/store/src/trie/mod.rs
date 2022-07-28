@@ -19,7 +19,7 @@ pub use crate::trie::shard_tries::{
 };
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::StorageError;
+use crate::{StorageError, Store};
 pub use near_primitives::types::TrieNodesCount;
 
 mod insert_delete;
@@ -406,6 +406,10 @@ pub struct Trie {
     pub(crate) storage: Box<dyn TrieStorage>,
 }
 
+pub struct FlatState {
+    pub store: Store,
+}
+
 /// Stores reference count change for some key-value pair in DB.
 #[derive(BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct TrieRefcountChange {
@@ -750,6 +754,13 @@ impl Trie {
 
     pub fn get_trie_nodes_count(&self) -> TrieNodesCount {
         self.storage.get_trie_nodes_count()
+    }
+
+    pub fn retrieve_flat_state(&self) -> Option<FlatState> {
+        match self.storage.as_caching_storage() {
+            Some(storage) => Some(FlatState { store: storage.store.clone() }),
+            None => None,
+        }
     }
 }
 

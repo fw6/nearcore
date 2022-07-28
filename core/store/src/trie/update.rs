@@ -6,7 +6,7 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, TrieCacheMode,
 };
 
-use crate::trie::TrieChanges;
+use crate::trie::{FlatState, TrieChanges};
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
@@ -25,6 +25,7 @@ pub type TrieUpdates = BTreeMap<Vec<u8>, TrieKeyValueUpdate>;
 /// Provides a way to access Storage and record changes with future commit.
 pub struct TrieUpdate {
     pub trie: Rc<Trie>,
+    pub flat_state: Option<FlatState>,
     root: CryptoHash,
     committed: RawStateChanges,
     prospective: TrieUpdates,
@@ -55,7 +56,21 @@ impl<'a> TrieUpdateValuePtr<'a> {
 
 impl TrieUpdate {
     pub fn new(trie: Rc<Trie>, root: CryptoHash) -> Self {
-        TrieUpdate { trie, root, committed: Default::default(), prospective: Default::default() }
+        TrieUpdate::new_with_flat_state(trie, None, root)
+    }
+
+    pub fn new_with_flat_state(
+        trie: Rc<Trie>,
+        flat_state: Option<FlatState>,
+        root: CryptoHash,
+    ) -> Self {
+        TrieUpdate {
+            trie,
+            flat_state,
+            root,
+            committed: Default::default(),
+            prospective: Default::default(),
+        }
     }
 
     pub fn trie(&self) -> &Trie {
