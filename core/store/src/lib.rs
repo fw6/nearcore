@@ -22,7 +22,9 @@ use near_primitives::receipt::{DelayedReceiptIndices, Receipt, ReceivedData};
 use near_primitives::serialize::to_base;
 pub use near_primitives::shard_layout::ShardUId;
 use near_primitives::trie_key::{trie_key_parsers, TrieKey};
-use near_primitives::types::{AccountId, CompiledContractCache, StateRoot};
+use near_primitives::types::{
+    AccountId, CompiledContractCache, RawStateChangesWithTrieKey, StateRoot,
+};
 
 use crate::db::{
     refcount, DBIterator, DBOp, DBTransaction, Database, RocksDB, StoreStatistics,
@@ -403,6 +405,20 @@ impl StoreUpdate {
             }
         }
         self.storage.write(self.transaction)
+    }
+
+    pub fn apply_change_to_flat_state(&mut self, change: &RawStateChangesWithTrieKey) {
+        let key = change.trie_key.to_vec();
+        let last_change = change
+            .changes
+            .last()
+            .expect("Committed entry should have at least one change")
+            .data
+            .clone();
+        match last_change {
+            Some(value) => self.set(DBCol::FlatState, &key, &value),
+            None => self.delete(DBCol::FlatState, &key),
+        }
     }
 }
 
