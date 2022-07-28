@@ -412,20 +412,24 @@ pub struct FlatState {
 }
 
 impl FlatState {
-    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
-        let value_ref = {
-            let bytes = self.store.get(DBCol::FlatState, key)?;
-            let mut cursor = Cursor::new(bytes);
-            let value_length = cursor.read_u32::<LittleEndian>()?;
-            let mut arr = [0; 32];
-            cursor.read_exact(&mut arr)?;
-            let value_hash = CryptoHash(arr);
-            ValueRef { length: value_length, hash: value_hash }
-        }
-        .map_err(|_| StorageError::StorageInternalError)?
-        .ok_or_else(|| StorageError::StorageInconsistentState("Trie node missing".to_string()))?;
+    fn decode_ref(bytes: &[u8]) -> Result<Option<ValueRef>, std::io::Error> {
+        let mut cursor = Cursor::new(bytes);
+        let value_length = cursor.read_u32::<LittleEndian>()?;
+        let mut arr = [0; 32];
+        cursor.read_exact(&mut arr)?;
+        let value_hash = CryptoHash(arr);
+        Ok(Some(ValueRef { length: value_length, hash: value_hash }))
+    }
 
-        Ok(Some(value_ref))
+    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+        let bytes = self
+            .store
+            .get(DBCol::FlatState, key)
+            .map_err(|_| StorageError::StorageInternalError)?
+            .ok_or_else(|| {
+                StorageError::StorageInconsistentState("Trie node missing".to_string())
+            })?;
+        FlatState::decode_ref(&bytes).map_err(|_| StorageError::StorageInternalError)
     }
 }
 
