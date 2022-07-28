@@ -19,7 +19,7 @@ pub use crate::trie::shard_tries::{
 };
 pub use crate::trie::trie_storage::{TrieCache, TrieCachingStorage, TrieStorage};
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieRecordingStorage};
-use crate::{StorageError, Store};
+use crate::{DBCol, StorageError, Store};
 pub use near_primitives::types::TrieNodesCount;
 
 mod insert_delete;
@@ -412,8 +412,20 @@ pub struct FlatState {
 }
 
 impl FlatState {
-    pub fn get_ref(&self, _key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
-        unimplemented!("flat state not implemented")
+    pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+        let value_ref = {
+            let bytes = self.store.get(DBCol::FlatState, key)?;
+            let mut cursor = Cursor::new(bytes);
+            let value_length = cursor.read_u32::<LittleEndian>()?;
+            let mut arr = [0; 32];
+            cursor.read_exact(&mut arr)?;
+            let value_hash = CryptoHash(arr);
+            ValueRef { length: value_length, hash: value_hash }
+        }
+        .map_err(|_| StorageError::StorageInternalError)?
+        .ok_or_else(|| StorageError::StorageInconsistentState("Trie node missing".to_string()))?;
+
+        Ok(Some(value_ref))
     }
 }
 
