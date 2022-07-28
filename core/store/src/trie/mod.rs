@@ -406,8 +406,15 @@ pub struct Trie {
     pub(crate) storage: Box<dyn TrieStorage>,
 }
 
+#[derive(Clone)]
 pub struct FlatState {
     pub store: Store,
+}
+
+impl FlatState {
+    pub fn get_ref(&self, _key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
+        unimplemented!("flat state not implemented")
+    }
 }
 
 /// Stores reference count change for some key-value pair in DB.
@@ -422,6 +429,11 @@ pub struct TrieRefcountChange {
     /// Reference count difference which will be added to the total refcount if it corresponds to
     /// insertion and subtracted from it in the case of deletion.
     rc: std::num::NonZeroU32,
+}
+
+pub struct ValueRef {
+    pub length: u32,
+    pub hash: CryptoHash,
 }
 
 ///
@@ -628,7 +640,7 @@ impl Trie {
         &self,
         root: &CryptoHash,
         mut key: NibbleSlice<'_>,
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+    ) -> Result<Option<ValueRef>, StorageError> {
         let mut hash = *root;
 
         loop {
@@ -643,7 +655,7 @@ impl Trie {
             match node.node {
                 RawTrieNode::Leaf(existing_key, value_length, value_hash) => {
                     if NibbleSlice::from_encoded(&existing_key).0 == key {
-                        return Ok(Some((value_length, value_hash)));
+                        return Ok(Some(ValueRef { length: value_length, hash: value_hash }));
                     } else {
                         return Ok(None);
                     }
@@ -661,7 +673,10 @@ impl Trie {
                     if key.is_empty() {
                         match value {
                             Some((value_length, value_hash)) => {
-                                return Ok(Some((value_length, value_hash)));
+                                return Ok(Some(ValueRef {
+                                    length: value_length,
+                                    hash: value_hash,
+                                }));
                             }
                             None => return Ok(None),
                         }
@@ -679,18 +694,14 @@ impl Trie {
         }
     }
 
-    pub fn get_ref(
-        &self,
-        root: &CryptoHash,
-        key: &[u8],
-    ) -> Result<Option<(u32, CryptoHash)>, StorageError> {
+    pub fn get_ref(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
         let key = NibbleSlice::new(key);
         self.lookup(root, key)
     }
 
     pub fn get(&self, root: &CryptoHash, key: &[u8]) -> Result<Option<Vec<u8>>, StorageError> {
         match self.get_ref(root, key)? {
-            Some((_length, hash)) => {
+            Some(ValueRef { hash, .. }) => {
                 self.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
             }
             None => Ok(None),

@@ -6,7 +6,7 @@ use near_primitives::types::{
     RawStateChange, RawStateChanges, RawStateChangesWithTrieKey, StateChangeCause, TrieCacheMode,
 };
 
-use crate::trie::{FlatState, TrieChanges};
+use crate::trie::{FlatState, TrieChanges, ValueRef};
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
@@ -99,8 +99,15 @@ impl TrieUpdate {
                 return Ok(data.as_ref().map(TrieUpdateValuePtr::MemoryRef));
             }
         }
-        self.trie.get_ref(&self.root, &key).map(|option| {
-            option.map(|(length, hash)| TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash))
+
+        let value_ref = match &self.flat_state {
+            Some(flat_state) => flat_state.get_ref(&key),
+            None => self.trie.get_ref(&self.root, &key),
+        };
+        value_ref.map(|option| {
+            option.map(|ValueRef { length, hash }| {
+                TrieUpdateValuePtr::HashAndSize(&self.trie, length, hash)
+            })
         })
     }
 
