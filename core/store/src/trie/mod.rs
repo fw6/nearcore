@@ -4,6 +4,7 @@ use std::io::{Cursor, Read};
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use byteorder::{LittleEndian, ReadBytesExt};
+use tracing::info;
 
 use near_primitives::challenge::PartialState;
 use near_primitives::contract::ContractCode;
@@ -422,14 +423,24 @@ impl FlatState {
     }
 
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
-        let bytes = self
+        // info!("get_ref {:?}", key);
+        let result = self
             .store
             .get(DBCol::FlatState, key)
-            .map_err(|_| StorageError::StorageInternalError)?
-            .ok_or_else(|| {
-                StorageError::StorageInconsistentState("Trie node missing".to_string())
-            })?;
-        FlatState::decode_ref(&bytes).map_err(|_| StorageError::StorageInternalError)
+            .map_err(|_| StorageError::StorageInternalError)?;
+        match result {
+            Some(bytes) => {
+                FlatState::decode_ref(&bytes).map_err(|_| StorageError::StorageInternalError)
+            }
+            None => Ok(None),
+        }
+        // let result = FlatState::decode_ref(&bytes).map_err(|_| StorageError::StorageInternalError);
+        // let display_result = match &result {
+        //     Ok(value_ref) => value_ref.map_or(0, |value_ref| value_ref.length),
+        //     None => u32::MAX,
+        // };
+        // info!("get_ref ok {}", display_result);
+        // result
     }
 }
 
