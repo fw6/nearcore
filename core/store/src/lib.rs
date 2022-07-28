@@ -409,8 +409,11 @@ impl StoreUpdate {
     }
 
     pub fn apply_change_to_flat_state(&mut self, change: &RawStateChangesWithTrieKey) {
+        match &change.trie_key {
+            TrieKey::DelayedReceipt | TrieKey::DelayedReceiptIndices => return,
+            _ => {}
+        }
         let key = change.trie_key.to_vec();
-        // info!("add {:?}", key);
         let last_change = change
             .changes
             .last()

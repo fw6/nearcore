@@ -423,7 +423,6 @@ impl FlatState {
     }
 
     pub fn get_ref(&self, key: &[u8]) -> Result<Option<ValueRef>, StorageError> {
-        // info!("get_ref {:?}", key);
         let result = self
             .store
             .get(DBCol::FlatState, key)
@@ -434,13 +433,6 @@ impl FlatState {
             }
             None => Ok(None),
         }
-        // let result = FlatState::decode_ref(&bytes).map_err(|_| StorageError::StorageInternalError);
-        // let display_result = match &result {
-        //     Ok(value_ref) => value_ref.map_or(0, |value_ref| value_ref.length),
-        //     None => u32::MAX,
-        // };
-        // info!("get_ref ok {}", display_result);
-        // result
     }
 }
 
