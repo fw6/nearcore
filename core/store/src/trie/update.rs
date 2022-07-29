@@ -78,6 +78,7 @@ impl TrieUpdate {
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let is_delayed = key.is_delayed();
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(<Vec<u8>>::clone));
@@ -88,17 +89,18 @@ impl TrieUpdate {
         }
 
         match &self.flat_state {
-            Some(flat_state) => match flat_state.get_ref(&key)? {
+            Some(flat_state) if !is_delayed => match flat_state.get_ref(&key)? {
                 Some(ValueRef { hash, .. }) => {
                     self.trie.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
                 }
                 None => Ok(None),
             },
-            None => self.trie.get(&self.root, &key),
+            _ => self.trie.get(&self.root, &key),
         }
     }
 
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
+        // value refs don't exist for delayed columns
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
             return Ok(key_value.value.as_ref().map(TrieUpdateValuePtr::MemoryRef));
