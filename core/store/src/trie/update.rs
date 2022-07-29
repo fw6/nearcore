@@ -89,15 +89,16 @@ impl TrieUpdate {
             }
         }
 
-        match &self.flat_state {
-            Some(flat_state) if !is_delayed => match flat_state.get_ref(&key)? {
-                Some(ValueRef { hash, .. }) => {
-                    self.trie.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
-                }
-                None => Ok(None),
-            },
-            _ => self.trie.get(&self.root, &key),
-        }
+        self.trie.get(&self.root, &key)
+        // match &self.flat_state {
+        //     Some(flat_state) if !is_delayed => match flat_state.get_ref(&key)? {
+        //         Some(ValueRef { hash, .. }) => {
+        //             self.trie.storage.retrieve_raw_bytes(&hash).map(|bytes| Some(bytes.to_vec()))
+        //         }
+        //         None => Ok(None),
+        //     },
+        //     _ => self.trie.get(&self.root, &key),
+        // }
     }
 
     pub fn get_ref(&self, key: &TrieKey) -> Result<Option<TrieUpdateValuePtr<'_>>, StorageError> {
