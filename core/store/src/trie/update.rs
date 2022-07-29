@@ -101,8 +101,12 @@ impl TrieUpdate {
                         .map(|bytes| Some(bytes.to_vec())),
                     None => Ok(None),
                 };
-                if value.unwrap() != true_value.unwrap() {
-                    info!("INEQUAL: {:?} {:?}", value.unwrap(), true_value.unwrap());
+                if value.as_ref().unwrap() != true_value.as_ref().unwrap() {
+                    info!(
+                        "INEQUAL: {:?} {:?}",
+                        value.as_ref().unwrap(),
+                        true_value.as_ref().unwrap()
+                    );
                 }
             }
             _ => {}
