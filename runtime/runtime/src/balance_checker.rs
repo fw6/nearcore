@@ -16,6 +16,7 @@ use near_primitives::types::{AccountId, Balance};
 use near_primitives::version::ProtocolVersion;
 use near_store::{get, get_account, get_postponed_receipt, TrieUpdate};
 use std::collections::HashSet;
+use tracing::info;
 
 pub(crate) fn check_balance(
     transaction_costs: &RuntimeFeesConfig,
@@ -45,6 +46,13 @@ pub(crate) fn check_balance(
             })
             .collect::<Result<Vec<Receipt>, StorageError>>()
     };
+    info!(
+        "{} {} {} {}",
+        initial_delayed_receipt_indices.first_index,
+        final_delayed_receipt_indices.first_index,
+        initial_delayed_receipt_indices.next_available_index,
+        final_delayed_receipt_indices.next_available_index
+    );
     // Previously delayed receipts that were processed this time.
     let processed_delayed_receipts = get_delayed_receipts(
         initial_delayed_receipt_indices.first_index,
@@ -170,6 +178,13 @@ pub(crate) fn check_balance(
     let final_postponed_receipts_balance = total_postponed_receipts_cost(final_state)?;
     // Sum it up
 
+    info!(
+        "{} {} {} {}",
+        incoming_receipts.len(),
+        processed_delayed_receipts.len(),
+        outgoing_receipts.len(),
+        new_delayed_receipts.len()
+    );
     let initial_balance = safe_add_balance_apply!(
         incoming_validator_rewards,
         initial_accounts_balance,
