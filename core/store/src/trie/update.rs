@@ -80,6 +80,7 @@ impl TrieUpdate {
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
+        let orig_key = key.clone();
         let is_delayed = key.is_delayed();
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
@@ -103,7 +104,8 @@ impl TrieUpdate {
                 };
                 if value.as_ref().unwrap() != true_value.as_ref().unwrap() {
                     info!(
-                        "INEQUAL: {:?} {:?}",
+                        "INEQUAL: {:?} {:?} {:?}",
+                        orig_key,
                         value.as_ref().unwrap(),
                         true_value.as_ref().unwrap()
                     );
