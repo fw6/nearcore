@@ -12,6 +12,7 @@ use crate::StorageError;
 use super::{Trie, TrieIterator};
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
+use tracing::info;
 
 /// Key-value update. Contains a TrieKey and a value.
 pub struct TrieKeyValueUpdate {
@@ -89,7 +90,24 @@ impl TrieUpdate {
             }
         }
 
-        self.trie.get(&self.root, &key)
+        let true_value = self.trie.get(&self.root, &key);
+        match &self.flat_state {
+            Some(flat_state) if !is_delayed => {
+                let value = match flat_state.get_ref(&key)? {
+                    Some(ValueRef { hash, .. }) => self
+                        .trie
+                        .storage
+                        .retrieve_raw_bytes(&hash)
+                        .map(|bytes| Some(bytes.to_vec())),
+                    None => Ok(None),
+                };
+                if value.unwrap() != true_value.unwrap() {
+                    info!("INEQUAL: {:?} {:?}", value.unwrap(), true_value.unwrap());
+                }
+            }
+            _ => {}
+        }
+        true_value
         // match &self.flat_state {
         //     Some(flat_state) if !is_delayed => match flat_state.get_ref(&key)? {
         //         Some(ValueRef { hash, .. }) => {
