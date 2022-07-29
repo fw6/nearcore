@@ -10,6 +10,7 @@ use crate::trie::{FlatState, TrieChanges, ValueRef};
 use crate::StorageError;
 
 use super::{Trie, TrieIterator};
+use near_primitives::state_record::StateRecord;
 use near_primitives::trie_key::TrieKey;
 use std::rc::Rc;
 use tracing::info;
@@ -80,7 +81,6 @@ impl TrieUpdate {
     }
 
     pub fn get(&self, key: &TrieKey) -> Result<Option<Vec<u8>>, StorageError> {
-        let orig_key = key.clone();
         let is_delayed = key.is_delayed();
         let key = key.to_vec();
         if let Some(key_value) = self.prospective.get(&key) {
@@ -103,12 +103,17 @@ impl TrieUpdate {
                     None => Ok(None),
                 };
                 if value.as_ref().unwrap() != true_value.as_ref().unwrap() {
-                    info!(
-                        "INEQUAL: {:?} {:?} {:?}",
-                        orig_key,
-                        value.as_ref().unwrap(),
-                        true_value.as_ref().unwrap()
-                    );
+                    let sr1 = StateRecord::from_raw_key_value(
+                        key.clone(),
+                        value.unwrap().unwrap().clone(),
+                    )
+                    .unwrap();
+                    let sr2 = StateRecord::from_raw_key_value(
+                        key.clone(),
+                        true_value.unwrap().unwrap().clone(),
+                    )
+                    .unwrap();
+                    info!("INEQUAL: {:?} FLAT: {:?} TRIE: {:?}", key, sr1, sr2);
                 }
             }
             _ => {}
