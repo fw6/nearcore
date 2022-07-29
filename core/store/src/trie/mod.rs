@@ -787,10 +787,13 @@ impl Trie {
     }
 
     pub fn retrieve_flat_state(&self) -> Option<FlatState> {
+        #[cfg(feature = "protocol_feature_flat_state")]
         match self.storage.as_caching_storage() {
             Some(storage) => Some(FlatState { store: storage.store.clone() }),
             None => None,
         }
+        #[cfg(not(feature = "protocol_feature_flat_state"))]
+        None
     }
 }
 
