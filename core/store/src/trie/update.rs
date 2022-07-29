@@ -105,12 +105,12 @@ impl TrieUpdate {
                 if value.as_ref().unwrap() != true_value.as_ref().unwrap() {
                     let sr1 = StateRecord::from_raw_key_value(
                         key.clone(),
-                        value.unwrap().unwrap().clone(),
+                        value.clone().unwrap().unwrap(),
                     )
                     .unwrap();
                     let sr2 = StateRecord::from_raw_key_value(
                         key.clone(),
-                        true_value.unwrap().unwrap().clone(),
+                        true_value.clone().unwrap().unwrap(),
                     )
                     .unwrap();
                     info!("INEQUAL: {:?} FLAT: {:?} TRIE: {:?}", key, sr1, sr2);
